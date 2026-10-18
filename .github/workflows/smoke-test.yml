@@ -10,67 +10,54 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
 
     steps:
-      - name: CGV 일산점 API 테스트
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Playwright 및 Chromium 설치
+        run: |
+          python -m pip install playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Chromium으로 CGV 접속 테스트
         shell: bash
         run: |
           python - <<'PY'
-          import json
-          import urllib.request
-          import urllib.error
+          from playwright.sync_api import sync_playwright
 
-          url = (
-              "https://cgv.co.kr/api/v1/booking/"
-              "searchMovScnInfo?"
-              "coCd=A420&siteNo=0054"
-              "&scnYmd=20261018"
-              "&rtctlScopCd=08"
-          )
+          url = "https://cgv.co.kr/"
 
-          headers = {
-              "User-Agent": "Mozilla/5.0",
-              "Accept": "application/json",
-          }
+          with sync_playwright() as p:
+              browser = p.chromium.launch(headless=True)
 
-          request = urllib.request.Request(
-              url, headers=headers
-          )
+              page = browser.new_page(
+                  locale="ko-KR",
+                  timezone_id="Asia/Seoul"
+              )
 
-          try:
-              with urllib.request.urlopen(
-                  request, timeout=15
-              ) as response:
-                  status = response.status
-                  body = response.read()
-                  content_type = response.headers.get(
-                      "Content-Type", ""
+              try:
+                  response = page.goto(
+                      url,
+                      wait_until="domcontentloaded",
+                      timeout=30000
                   )
 
-              print("HTTP 상태:", status)
-              print("Content-Type:", content_type)
-              print("응답 크기:", len(body), "bytes")
+                  print("HTTP 상태:",
+                        response.status if response else "없음")
+                  print("현재 URL:", page.url)
+                  print("페이지 제목:", page.title())
 
-              data = json.loads(body)
-              print("JSON 파싱: 성공")
+                  if response is None or response.status != 200:
+                      raise RuntimeError(
+                          "CGV 홈페이지 접속 실패"
+                      )
 
-              if isinstance(data, dict):
-                  print("최상위 키:", list(data.keys()))
-                  print("statusCode:", data.get("statusCode"))
-                  print("statusMessage:", data.get("statusMessage"))
+                  print("Chromium 접속 성공!")
 
-              if status == 200:
-                  print("CGV API 요청 성공!")
-              else:
-                  raise SystemExit(1)
-
-          except urllib.error.HTTPError as e:
-              print("HTTP 오류:", e.code)
-              raise SystemExit(1)
-
-          except Exception as e:
-              print("테스트 실패:", type(e).__name__)
-              print(str(e))
-              raise SystemExit(1)
+              finally:
+                  browser.close()
           PY
